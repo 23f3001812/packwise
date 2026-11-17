@@ -315,29 +315,55 @@ export default function CreateReminderScreen() {
             ) : listItems.length === 0 ? (
               <Text style={styles.noDataNotice}>No items found in selected checklist(s).</Text>
             ) : (
-              <View style={styles.itemsListContainer}>
-                {listItems.map((item) => {
-                  const isSelected = selectedItemIds.includes(item.itemId);
-                  return (
-                    <TouchableOpacity
-                      key={item.itemId}
-                      style={[styles.itemRow, isSelected && styles.itemRowActive]}
-                      onPress={() => toggleItemSelection(item.itemId)}
-                    >
-                      <Ionicons
-                        name={isSelected ? 'checkbox' : 'square-outline'}
-                        size={18}
-                        color={isSelected ? Colors.primary : Colors.textMuted}
-                      />
-                      <Text style={styles.itemRowName}>{item.itemName}</Text>
-                      {item.category && (
-                        <View style={styles.itemCatBadge}>
-                          <Text style={styles.itemCatText}>{item.category}</Text>
+              <View style={styles.itemsWrapper}>
+                <ScrollView
+                  nestedScrollEnabled={true}
+                  showsVerticalScrollIndicator={true}
+                  style={styles.itemsScrollContainer}
+                  contentContainerStyle={styles.itemsScrollContent}
+                >
+                  {listItems.map((item, index) => {
+                    const isSelected = selectedItemIds.includes(item.itemId);
+                    const isLast = index === listItems.length - 1;
+                    return (
+                      <TouchableOpacity
+                        key={item.itemId}
+                        style={[
+                          styles.itemRow,
+                          isSelected && styles.itemRowActive,
+                          !isLast && styles.itemRowBorder,
+                        ]}
+                        onPress={() => toggleItemSelection(item.itemId)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.itemCheckbox}>
+                          <Ionicons
+                            name={isSelected ? 'checkbox' : 'square-outline'}
+                            size={18}
+                            color={isSelected ? Colors.primary : Colors.textMuted}
+                          />
                         </View>
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
+                        <Text
+                          style={[
+                            styles.itemRowName,
+                            isSelected && styles.itemRowNameSelected,
+                          ]}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        >
+                          {item.itemName}
+                        </Text>
+                        {item.category && (
+                          <View style={styles.itemCatBadge}>
+                            <Text style={styles.itemCatText} numberOfLines={1}>
+                              {item.category}
+                            </Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
               </View>
             )}
           </View>
@@ -530,39 +556,71 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     fontStyle: 'italic',
   },
-  itemsListContainer: {
+  itemsWrapper: {
+    width: '100%',
+    maxWidth: '100%',
+  },
+  itemsScrollContainer: {
     backgroundColor: Colors.card,
     borderRadius: Radii.md,
     borderWidth: 1,
     borderColor: Colors.border,
-    padding: 6,
-    maxHeight: 220,
+    maxHeight: 240,
+    width: '100%',
+    maxWidth: '100%',
+  },
+  itemsScrollContent: {
+    paddingVertical: 2,
+    paddingHorizontal: 4,
   },
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 9,
     paddingHorizontal: 8,
     borderRadius: Radii.sm,
+    width: '100%',
+    maxWidth: '100%',
+    overflow: 'hidden',
+  },
+  itemRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
   },
   itemRowActive: {
     backgroundColor: Colors.primarySurface,
   },
+  itemCheckbox: {
+    width: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    marginRight: 6,
+  },
   itemRowName: {
     flex: 1,
+    minWidth: 0,
     fontSize: 13,
     color: Colors.textPrimary,
-    marginLeft: 8,
+    marginRight: 8,
+  },
+  itemRowNameSelected: {
+    fontWeight: '600',
+    color: Colors.primary,
   },
   itemCatBadge: {
     backgroundColor: Colors.backgroundSecondary,
-    paddingHorizontal: 6,
+    paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: Radii.sm,
+    flexShrink: 0,
+    alignSelf: 'center',
+    maxWidth: 90,
   },
   itemCatText: {
     fontSize: 10,
     color: Colors.textSecondary,
+    fontWeight: '500',
   },
   input: {
     backgroundColor: Colors.inputBackground,

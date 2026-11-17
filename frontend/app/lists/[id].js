@@ -519,6 +519,7 @@ export default function PackingListDetailsScreen() {
         showBack={true}
         rightAction={
           <View style={styles.headerActions}>
+            {/* Gemini AI Suggestions Action */}
             {canEdit && (
               <TouchableOpacity
                 onPress={() => {
@@ -537,16 +538,32 @@ export default function PackingListDetailsScreen() {
                   });
                 }}
                 style={styles.headerBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
                 accessibilityLabel="AI Suggestions"
               >
-                <Ionicons name="sparkles-outline" size={19} color={Colors.primary} />
+                <Ionicons name="sparkles-outline" size={20} color={Colors.primary} />
               </TouchableOpacity>
             )}
+
+            {/* Notification / Trip Reminder Action */}
+            <TouchableOpacity
+              onPress={handleScheduleReminder}
+              style={styles.headerBtn}
+              hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+              accessibilityLabel="Trip Reminder"
+            >
+              <Ionicons
+                name={listData?.reminderScheduled ? 'notifications' : 'notifications-outline'}
+                size={20}
+                color={listData?.reminderScheduled ? Colors.primary : Colors.textPrimary}
+              />
+            </TouchableOpacity>
 
             {/* Collaborators Button */}
             <TouchableOpacity
               onPress={() => router.push(`/collaboration/members/${id}`)}
               style={styles.headerBtn}
+              hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
               accessibilityLabel="Manage Collaborators"
             >
               <View style={styles.headerIconWrapper}>
@@ -563,20 +580,25 @@ export default function PackingListDetailsScreen() {
               </View>
             </TouchableOpacity>
 
-            {isOwner ? (
-              <>
-                <TouchableOpacity onPress={handleEditList} style={styles.headerBtn} accessibilityLabel="Edit List">
-                  <Ionicons name="pencil-outline" size={19} color={Colors.textPrimary} />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={handleDeleteList} style={styles.headerBtn} accessibilityLabel="Delete List">
-                  <Ionicons name="trash-outline" size={19} color={Colors.danger} />
-                </TouchableOpacity>
-              </>
-            ) : (
-              <TouchableOpacity onPress={handleLeaveTrip} style={styles.headerBtn} accessibilityLabel="Leave Trip">
-                <Ionicons name="log-out-outline" size={19} color={Colors.danger} />
-              </TouchableOpacity>
-            )}
+            {/* More Trip Options */}
+            <TouchableOpacity
+              onPress={() => {
+                const options = [];
+                if (isOwner) {
+                  options.push({ text: 'Edit Trip Details', onPress: handleEditList });
+                  options.push({ text: 'Delete Trip', style: 'destructive', onPress: handleDeleteList });
+                } else {
+                  options.push({ text: 'Leave Shared Trip', style: 'destructive', onPress: handleLeaveTrip });
+                }
+                options.push({ text: 'Cancel', style: 'cancel' });
+                Alert.alert(listData?.eventName || 'Trip Options', undefined, options);
+              }}
+              style={styles.headerBtn}
+              hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+              accessibilityLabel="Trip Options"
+            >
+              <Ionicons name="ellipsis-vertical" size={20} color={Colors.textPrimary} />
+            </TouchableOpacity>
           </View>
         }
       />
@@ -930,10 +952,15 @@ const styles = StyleSheet.create({
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 4,
+    flexShrink: 0,
   },
   headerBtn: {
-    padding: 6,
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
   },
   headerIconWrapper: {
     position: 'relative',

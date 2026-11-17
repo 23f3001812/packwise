@@ -602,6 +602,7 @@ async function getSharedListsForUser(userId) {
     .get();
 
   const lists = [];
+  const seenListIds = new Set();
 
   for (const doc of snap.docs) {
     const listData = doc.data();
@@ -610,6 +611,8 @@ async function getSharedListsForUser(userId) {
     if (listData.userId === userId || listData.ownerId === userId) {
       continue;
     }
+
+    seenListIds.add(doc.id);
 
     // Determine user's role on this list
     let myRole = 'editor';
@@ -633,9 +636,28 @@ async function getSharedListsForUser(userId) {
 
     const packingProgress = totalItems > 0 ? Math.round((packedItems / totalItems) * 100) : 0;
 
+    // Resolve owner display name/email if not present
+    let ownerName = listData.ownerName || null;
+    let ownerEmail = listData.ownerEmail || null;
+    const ownerUserId = listData.ownerId || listData.userId;
+    if ((!ownerName || !ownerEmail) && ownerUserId) {
+      try {
+        const ownerDoc = await db.collection('users').doc(ownerUserId).get();
+        if (ownerDoc.exists) {
+          const oData = ownerDoc.data();
+          ownerName = ownerName || oData.displayName || oData.name || null;
+          ownerEmail = ownerEmail || oData.email || null;
+        }
+      } catch {
+        // Fallback silently if user doc unreadable
+      }
+    }
+
     lists.push({
       listId: doc.id,
       ...listData,
+      ownerName: ownerName || 'Trip Organizer',
+      ownerEmail: ownerEmail || '',
       isSharedWithMe: true,
       myRole,
       stats: {
@@ -645,6 +667,60 @@ async function getSharedListsForUser(userId) {
         packingProgress
       }
     });
+  }
+
+  // Fallback: check members subcollection for any lists where user is active member
+  try {
+    const membersSnap = await db
+      .collectionGroup('members')
+      .where('userId', '==', userId)
+      .where('status', '==', 'active')
+      .get();
+
+    for (const mDoc of membersSnap.docs) {
+      const parentRef = mDoc.ref.parent.parent;
+      if (!parentRef || seenListIds.has(parentRef.id)) continue;
+
+      const pDoc = await parentRef.get();
+      if (!pDoc.exists) continue;
+
+      const pData = pDoc.data();
+      if (pData.userId === userId || pData.ownerId === userId) continue;
+
+      seenListIds.add(parentRef.id);
+      const myRole = mDoc.data()?.role || 'editor';
+
+      const itemsSnap = await db.collection('items').where('listId', '==', parentRef.id).get();
+      let totalItems = 0;
+      let packedItems = 0;
+      let unpackedItems = 0;
+
+      itemsSnap.forEach((iDoc) => {
+        totalItems += 1;
+        const it = iDoc.data();
+        if (it.isPacked) packedItems += 1;
+        if (it.isUnpacked) unpackedItems += 1;
+      });
+
+      const packingProgress = totalItems > 0 ? Math.round((packedItems / totalItems) * 100) : 0;
+
+      lists.push({
+        listId: parentRef.id,
+        ...pData,
+        ownerName: pData.ownerName || 'Trip Organizer',
+        ownerEmail: pData.ownerEmail || '',
+        isSharedWithMe: true,
+        myRole,
+        stats: {
+          totalItems,
+          packedItems,
+          unpackedItems,
+          packingProgress
+        }
+      });
+    }
+  } catch (err) {
+    // collectionGroup query requires an index in some environments; ignore if index not set
   }
 
   return lists;

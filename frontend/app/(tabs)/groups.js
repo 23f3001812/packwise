@@ -22,6 +22,8 @@ import {
 } from '../../services/collaborationService';
 import { useAuth } from '../../context/AuthContext';
 import { usePendingInvitations } from '../../hooks/usePendingInvitations';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '../../services/firebase';
 
 export default function GroupsScreen() {
   const router = useRouter();
@@ -37,7 +39,12 @@ export default function GroupsScreen() {
     try {
       setLoading(true);
       const lists = await fetchSharedLists();
-      setSharedLists(lists);
+      // Exclude any lists owned by the user and deduplicate by listId
+      const filtered = (lists || []).filter(
+        (l) => l.userId !== user?.uid && l.ownerId !== user?.uid
+      );
+      const unique = Array.from(new Map(filtered.map((l) => [l.listId, l])).values());
+      setSharedLists(unique);
     } catch (err) {
       console.warn('Failed to load shared lists:', err.message);
     } finally {
@@ -45,10 +52,36 @@ export default function GroupsScreen() {
     }
   };
 
+  // Real-time listener for shared lists membership changes
+  useEffect(() => {
+    if (!user?.uid || !db) return;
+    let unsubscribe = null;
+    try {
+      const q = query(
+        collection(db, 'packingLists'),
+        where('memberIds', 'array-contains', user.uid)
+      );
+      unsubscribe = onSnapshot(
+        q,
+        () => {
+          loadSharedLists();
+        },
+        (err) => {
+          console.warn('[Groups] Realtime listener notice:', err.message);
+        }
+      );
+    } catch (e) {
+      console.warn('[Groups] Realtime listener setup notice:', e.message);
+    }
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [user?.uid]);
+
   useFocusEffect(
     useCallback(() => {
       loadSharedLists();
-    }, [])
+    }, [user?.uid])
   );
 
   const onRefresh = async () => {
@@ -60,6 +93,8 @@ export default function GroupsScreen() {
   const handleAcceptInvite = async (invitationId) => {
     try {
       const res = await acceptInvitation(invitationId);
+      await loadSharedLists();
+      setActiveTab('shared');
       Alert.alert(
         'Invitation Accepted',
         `You have joined "${res.listName || 'the trip'}".`,
@@ -71,7 +106,6 @@ export default function GroupsScreen() {
           { text: 'OK' }
         ]
       );
-      loadSharedLists();
     } catch (err) {
       Alert.alert('Error', err.message || 'Failed to accept invitation.');
     }
@@ -98,7 +132,10 @@ export default function GroupsScreen() {
         {/* Tab Switcher: Shared Trips vs Invitations */}
         <View style={styles.tabBar}>
           <TouchableOpacity
-            onPress={() => setActiveTab('shared')}
+            onPress={() => {
+              setActiveTab('shared');
+              loadSharedLists();
+            }}
             style={[styles.tabBtn, activeTab === 'shared' && styles.tabBtnActive]}
             activeOpacity={0.7}
           >
@@ -173,7 +210,9 @@ export default function GroupsScreen() {
                 >
                   <View style={styles.cardHeader}>
                     <View style={styles.cardHeaderInfo}>
-                      <Text style={styles.cardTitle}>{item.eventName}</Text>
+                      <Text style={styles.cardTitle} numberOfLines={1} ellipsizeMode="tail">
+                        {item.eventName}
+                      </Text>
                       <View style={styles.destRow}>
                         <Ionicons name="location-outline" size={13} color={Colors.textSecondary} style={{ marginRight: 3 }} />
                         <Text style={styles.destText}>{item.destination}</Text>
@@ -367,6 +406,7 @@ const styles = StyleSheet.create({
   },
   cardHeaderInfo: {
     flex: 1,
+    minWidth: 0,
     marginRight: 8
   },
   cardTitle: {

@@ -20,9 +20,11 @@ import { PackingListCard } from '../../components/packing/PackingListCard';
 import { PrimaryButton } from '../../components/buttons/PrimaryButton';
 import { fetchPackingLists, deletePackingList } from '../../services/packingService';
 import { fetchSharedLists } from '../../services/collaborationService';
+import { useAuth } from '../../context/AuthContext';
 
 export default function PackingListsScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const [lists, setLists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -38,11 +40,14 @@ export default function PackingListsScreen() {
         fetchSharedLists().catch(() => []),
       ]);
 
-      const combined = [
-        ...myLists.map((l) => ({ ...l, isSharedWithMe: false })),
-        ...sharedLists.map((l) => ({ ...l, isSharedWithMe: true })),
-      ];
-      setLists(combined);
+      const owned = (myLists || []).map((l) => ({ ...l, isSharedWithMe: false }));
+      const ownedIds = new Set(owned.map((l) => l.listId));
+
+      const shared = (sharedLists || [])
+        .filter((l) => !ownedIds.has(l.listId) && l.userId !== user?.uid && l.ownerId !== user?.uid)
+        .map((l) => ({ ...l, isSharedWithMe: true }));
+
+      setLists([...owned, ...shared]);
     } catch (err) {
       console.warn('Failed to load packing lists:', err.message);
       Alert.alert('Network Notice', 'Could not load packing lists. Please ensure the backend is running.');
@@ -54,7 +59,7 @@ export default function PackingListsScreen() {
   useFocusEffect(
     useCallback(() => {
       loadLists();
-    }, [])
+    }, [user?.uid])
   );
 
   const onRefresh = async () => {
@@ -64,11 +69,14 @@ export default function PackingListsScreen() {
         fetchPackingLists().catch(() => []),
         fetchSharedLists().catch(() => []),
       ]);
-      const combined = [
-        ...myLists.map((l) => ({ ...l, isSharedWithMe: false })),
-        ...sharedLists.map((l) => ({ ...l, isSharedWithMe: true })),
-      ];
-      setLists(combined);
+      const owned = (myLists || []).map((l) => ({ ...l, isSharedWithMe: false }));
+      const ownedIds = new Set(owned.map((l) => l.listId));
+
+      const shared = (sharedLists || [])
+        .filter((l) => !ownedIds.has(l.listId) && l.userId !== user?.uid && l.ownerId !== user?.uid)
+        .map((l) => ({ ...l, isSharedWithMe: true }));
+
+      setLists([...owned, ...shared]);
     } finally {
       setRefreshing(false);
     }

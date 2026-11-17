@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -10,18 +10,72 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { Colors } from '../../constants/colors';
 import { Radii, Shadows } from '../../constants/theme';
+import { fetchSharedLists } from '../../services/collaborationService';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '../../services/firebase';
 
 export default function ProfileScreen() {
   const router = useRouter();
   const { user, userProfile, logout } = useAuth();
   const [loggingOut, setLoggingOut] = useState(false);
+  const [sharedTrips, setSharedTrips] = useState([]);
+  const [loadingSharedTrips, setLoadingSharedTrips] = useState(false);
 
   const name = userProfile?.name || user?.displayName || 'PackWise Traveler';
   const email = user?.email || 'user@packwise.com';
+
+  const loadSharedTrips = async () => {
+    try {
+      setLoadingSharedTrips(true);
+      const lists = await fetchSharedLists();
+      // Ensure only trips where user is collaborator (not owner) appear, and deduplicate
+      const filtered = (lists || []).filter(
+        (l) => l.userId !== user?.uid && l.ownerId !== user?.uid
+      );
+      const unique = Array.from(new Map(filtered.map((l) => [l.listId, l])).values());
+      setSharedTrips(unique);
+    } catch (err) {
+      console.warn('[Profile] Failed to load shared trips:', err.message);
+    } finally {
+      setLoadingSharedTrips(false);
+    }
+  };
+
+  // Real-time listener for shared lists membership changes
+  useEffect(() => {
+    if (!user?.uid || !db) return;
+    let unsubscribe = null;
+    try {
+      const q = query(
+        collection(db, 'packingLists'),
+        where('memberIds', 'array-contains', user.uid)
+      );
+      unsubscribe = onSnapshot(
+        q,
+        () => {
+          loadSharedTrips();
+        },
+        (err) => {
+          console.warn('[Profile] Realtime listener notice:', err.message);
+        }
+      );
+    } catch (e) {
+      console.warn('[Profile] Realtime listener setup notice:', e.message);
+    }
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [user?.uid]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadSharedTrips();
+    }, [user?.uid])
+  );
 
   const menuItems = [
     {
@@ -121,6 +175,89 @@ export default function ProfileScreen() {
             <Text style={styles.userEmail}>{email}</Text>
           </View>
 
+          {/* Shared Trips Section */}
+          <View style={styles.sharedSection}>
+            <View style={styles.sectionHeaderRow}>
+              <View style={styles.sectionTitleRow}>
+                <Ionicons name="people" size={18} color={Colors.primary} style={{ marginRight: 6 }} />
+                <Text style={styles.sectionHeaderTitle}>
+                  Shared Trips {sharedTrips.length > 0 ? `(${sharedTrips.length})` : ''}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => router.push('/(tabs)/groups')}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={styles.viewAllText}>View All</Text>
+              </TouchableOpacity>
+            </View>
+
+            {loadingSharedTrips && sharedTrips.length === 0 ? (
+              <View style={styles.sharedLoading}>
+                <ActivityIndicator size="small" color={Colors.primary} />
+                <Text style={styles.sharedLoadingText}>Loading shared trips...</Text>
+              </View>
+            ) : sharedTrips.length === 0 ? (
+              <View style={styles.emptySharedCard}>
+                <Ionicons name="people-outline" size={24} color={Colors.textMuted} style={{ marginBottom: 6 }} />
+                <Text style={styles.emptySharedTitle}>No Shared Trips</Text>
+                <Text style={styles.emptySharedSub}>
+                  When other travelers invite you to collaborate on packing lists, they will appear here in real-time.
+                </Text>
+              </View>
+            ) : (
+              sharedTrips.slice(0, 3).map((item) => (
+                <TouchableOpacity
+                  key={item.listId}
+                  style={[styles.sharedTripCard, Shadows.card]}
+                  activeOpacity={0.7}
+                  onPress={() => router.push(`/lists/${item.listId}`)}
+                >
+                  <View style={styles.sharedCardTop}>
+                    <View style={styles.sharedCardInfo}>
+                      <Text style={styles.sharedTripTitle} numberOfLines={1} ellipsizeMode="tail">
+                        {item.eventName}
+                      </Text>
+                      <View style={styles.sharedDestRow}>
+                        <Ionicons name="location-outline" size={13} color={Colors.textSecondary} style={{ marginRight: 4 }} />
+                        <Text style={styles.sharedDestText} numberOfLines={1}>
+                          {item.destination}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.rolePill}>
+                      <Text style={styles.rolePillText}>{item.myRole || 'Editor'}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.sharedProgressRow}>
+                    <View style={styles.sharedProgressTrack}>
+                      <View
+                        style={[
+                          styles.sharedProgressFill,
+                          { width: `${item.stats?.packingProgress || 0}%` },
+                        ]}
+                      />
+                    </View>
+                    <Text style={styles.sharedProgressPercent}>
+                      {item.stats?.packingProgress || 0}%
+                    </Text>
+                  </View>
+
+                  <View style={styles.sharedCardBottom}>
+                    <Text style={styles.sharedItemsText}>
+                      {item.stats?.packedItems || 0} of {item.stats?.totalItems || 0} items packed
+                    </Text>
+                    <View style={styles.sharedOpenRow}>
+                      <Text style={styles.sharedOpenText}>Open</Text>
+                      <Ionicons name="chevron-forward" size={13} color={Colors.primary} />
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+
           {/* Settings / Menu List */}
           <View style={[styles.menuCard, Shadows.card]}>
             {menuItems.map((item, index) => (
@@ -134,6 +271,11 @@ export default function ProfileScreen() {
                     <Ionicons name={item.icon} size={20} color={Colors.primary} />
                   </View>
                   <Text style={styles.menuTitle}>{item.title}</Text>
+                  {item.id === '4' && sharedTrips.length > 0 && (
+                    <View style={styles.menuBadge}>
+                      <Text style={styles.menuBadgeText}>{sharedTrips.length}</Text>
+                    </View>
+                  )}
                   <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
                 </TouchableOpacity>
 
@@ -217,6 +359,164 @@ const styles = StyleSheet.create({
   userEmail: {
     fontSize: 14,
     color: Colors.textSecondary,
+  },
+  sharedSection: {
+    marginBottom: 24,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sectionHeaderTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  viewAllText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
+  sharedLoading: {
+    paddingVertical: 20,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  sharedLoadingText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  emptySharedCard: {
+    backgroundColor: Colors.card,
+    borderRadius: Radii.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 16,
+    alignItems: 'center',
+  },
+  emptySharedTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginBottom: 4,
+  },
+  emptySharedSub: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 16,
+  },
+  sharedTripCard: {
+    backgroundColor: Colors.card,
+    borderRadius: Radii.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 14,
+    marginBottom: 10,
+  },
+  sharedCardTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  sharedCardInfo: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 8,
+  },
+  sharedTripTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginBottom: 2,
+  },
+  sharedDestRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sharedDestText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  rolePill: {
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: Radii.full,
+  },
+  rolePillText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#1D4ED8',
+    textTransform: 'capitalize',
+  },
+  sharedProgressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  sharedProgressTrack: {
+    flex: 1,
+    height: 6,
+    backgroundColor: Colors.backgroundSecondary,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  sharedProgressFill: {
+    height: '100%',
+    backgroundColor: Colors.primary,
+    borderRadius: 3,
+  },
+  sharedProgressPercent: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.primary,
+    width: 32,
+    textAlign: 'right',
+  },
+  sharedCardBottom: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  sharedItemsText: {
+    fontSize: 11,
+    color: Colors.textSecondary,
+  },
+  sharedOpenRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  sharedOpenText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
+  menuBadge: {
+    backgroundColor: Colors.primary,
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+    marginRight: 8,
+  },
+  menuBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
   },
   menuCard: {
     backgroundColor: Colors.card,

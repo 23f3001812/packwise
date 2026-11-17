@@ -11,6 +11,7 @@ export const Header = ({
   rightAction = null,
   rightIconName = null,
   onRightPress = null,
+  titleAlign = null,
   style = {},
 }) => {
   const router = useRouter();
@@ -23,6 +24,8 @@ export const Header = ({
     }
   };
 
+  const computedTitleAlign = titleAlign || (showBack ? 'left' : 'center');
+
   return (
     <View style={[styles.header, style]}>
       <View style={styles.leftContainer}>
@@ -31,13 +34,19 @@ export const Header = ({
             activeOpacity={0.7}
             onPress={handleBack}
             style={styles.iconButton}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Go Back"
           >
             <Ionicons name="arrow-back" size={24} color={Colors.textPrimary} />
           </TouchableOpacity>
         )}
       </View>
 
-      <Text style={styles.title} numberOfLines={1}>
+      <Text
+        style={[styles.title, { textAlign: computedTitleAlign }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
         {title}
       </Text>
 
@@ -49,6 +58,8 @@ export const Header = ({
             activeOpacity={0.7}
             onPress={onRightPress}
             style={styles.iconButton}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Header Action"
           >
             <Ionicons name={rightIconName} size={22} color={Colors.textPrimary} />
           </TouchableOpacity>
@@ -63,24 +74,29 @@ const styles = StyleSheet.create({
     height: 56,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 16,
     backgroundColor: Colors.background,
   },
   leftContainer: {
-    width: 40,
+    minWidth: 40,
     alignItems: 'flex-start',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
   title: {
     fontSize: 18,
     fontWeight: '700',
     color: Colors.textPrimary,
-    textAlign: 'center',
     flex: 1,
+    minWidth: 0,
+    marginHorizontal: 8,
   },
   rightContainer: {
-    width: 40,
-    alignItems: 'flex-end',
+    minWidth: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    flexShrink: 0,
   },
   iconButton: {
     width: 38,
