@@ -28,7 +28,7 @@ export const request = async (endpoint, options = {}) => {
     body = null,
     headers = {},
     requiresAuth = false,
-    timeoutMs = 10000,
+    timeoutMs = 15000,
   } = options;
 
   const url = `${BASE_URL.replace(/\/$/, '')}/${endpoint.replace(/^\//, '')}`;
@@ -90,18 +90,32 @@ export const request = async (endpoint, options = {}) => {
   } catch (err) {
     clearTimeout(timeoutId);
 
-    if (err.name === 'AbortError') {
-      throw new ApiError('Request timed out. Please check if the backend server is running and reachable.', 408);
-    }
-
     if (err instanceof ApiError) {
       throw err;
+    }
+
+    // Check if the request was aborted due to timeout (AbortError, signal.aborted, or native Android fetch cancellation)
+    const isTimeout =
+      controller.signal.aborted ||
+      err.name === 'AbortError' ||
+      (err.message && (
+        err.message.toLowerCase().includes('aborted') ||
+        err.message.toLowerCase().includes('timeout') ||
+        err.message.toLowerCase().includes('timed out')
+      ));
+
+    if (isTimeout) {
+      const seconds = Math.round(timeoutMs / 1000);
+      throw new ApiError(
+        `Request timed out after ${seconds} seconds. Operations like AI checklist generation and live weather retrieval may take up to 30-45 seconds. Please try again.`,
+        408
+      );
     }
 
     // Network / connection refused error
     console.error(`[API Network Error] URL: ${url}`, err.message);
     throw new ApiError(
-      `Unable to connect to PackWise server at ${url}. If testing on a physical device, ensure EXPO_PUBLIC_BACKEND_URL uses your computer's local IP address.`,
+      `Unable to connect to PackWise server at ${url}. If testing on a physical device, ensure EXPO_PUBLIC_BACKEND_URL uses your computer's local IP address and port 5001.`,
       0
     );
   }

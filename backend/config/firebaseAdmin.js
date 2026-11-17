@@ -104,8 +104,16 @@ function isFirebaseAdminReady() {
   return Boolean(Array.isArray(admin.apps) && admin.apps.length > 0 && admin.apps[0]);
 }
 
+function getDb() {
+  if (!isFirebaseAdminReady()) {
+    initFirebaseAdmin();
+  }
+  return admin.firestore();
+}
+
 module.exports = {
   admin,
   initFirebaseAdmin,
-  isFirebaseAdminReady
+  isFirebaseAdminReady,
+  getDb
 };

@@ -26,36 +26,48 @@ export default function ProfileScreen() {
   const menuItems = [
     {
       id: '1',
-      title: 'My Trips',
-      icon: 'airplane-outline',
-      onPress: () => Alert.alert('My Trips', 'Upcoming and past trip logs will be managed in Milestone 4.'),
+      title: 'My Packing Lists',
+      icon: 'list-outline',
+      onPress: () => router.push('/lists'),
     },
     {
       id: '2',
-      title: 'Shared Groups',
+      title: 'Saved Locations & Geofences',
+      icon: 'location-outline',
+      onPress: () => router.push('/locations'),
+    },
+    {
+      id: '3',
+      title: 'Leave-Behind Reminders',
+      icon: 'alarm-outline',
+      onPress: () => router.push('/reminders'),
+    },
+    {
+      id: '4',
+      title: 'Shared Trips & Collaboration',
       icon: 'people-outline',
       onPress: () => router.push('/(tabs)/groups'),
     },
     {
-      id: '3',
-      title: 'App Settings',
+      id: '5',
+      title: 'Notification & Location Settings',
       icon: 'settings-outline',
-      onPress: () => Alert.alert('App Settings', 'Theme, notifications, and unit preferences will be customizable in Milestone 4.'),
+      onPress: () => router.push('/settings/notifications'),
     },
     {
-      id: '4',
+      id: '6',
       title: 'Help & Support',
       icon: 'help-circle-outline',
       onPress: () => Alert.alert('Help & Support', 'PackWise user guide and FAQs.'),
     },
     {
-      id: '5',
+      id: '7',
       title: 'About PackWise',
       icon: 'information-circle-outline',
       onPress: () =>
         Alert.alert(
           'About PackWise',
-          'PackWise v1.0.0 (Milestone 1)\nAI-Powered Context-Aware Packing and Intelligent Item Management System with Geofencing and Real-Time Collaboration.'
+          'PackWise v1.0.0 (Milestone 5)\nAI-Powered Context-Aware Packing and Intelligent Item Management System with Geofencing and Real-Time Collaboration.'
         ),
     },
   ];
@@ -92,7 +104,8 @@ export default function ProfileScreen() {
           <Text style={styles.headerTitle}>Profile & Settings</Text>
           <TouchableOpacity
             style={styles.gearButton}
-            onPress={() => Alert.alert('Settings', 'Settings preferences.')}
+            onPress={() => router.push('/settings/notifications')}
+            accessibilityLabel="Settings"
           >
             <Ionicons name="settings-outline" size={22} color={Colors.textPrimary} />
           </TouchableOpacity>
@@ -178,7 +191,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   scrollContent: {
-    paddingBottom: 28,
+    paddingBottom: 96,
   },
   userSection: {
     alignItems: 'center',

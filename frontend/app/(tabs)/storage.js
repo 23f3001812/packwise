@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -6,55 +6,151 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
+  RefreshControl,
+  ActivityIndicator,
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useFocusEffect } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/colors';
-import { Radii, Shadows } from '../../constants/theme';
+import { Radii } from '../../constants/theme';
+import { ContainerCard } from '../../components/storage/ContainerCard';
+import { ContainerModal } from '../../components/storage/ContainerModal';
+import { ContainerItemListModal } from '../../components/storage/ContainerItemListModal';
 import { PrimaryButton } from '../../components/buttons/PrimaryButton';
+import {
+  fetchContainers,
+  createContainer,
+  updateContainer,
+  deleteContainer,
+} from '../../services/containerService';
+
+const CONTAINER_FILTER_TYPES = [
+  'All',
+  'Suitcase',
+  'Backpack',
+  'Handbag',
+  'Duffel bag',
+  'Storage box',
+];
 
 export default function StorageScreen() {
+  const [containers, setContainers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedType, setSelectedType] = useState('All');
 
-  const sampleContainers = [
-    {
-      id: '1',
-      name: 'Blue Suitcase',
-      itemCount: 12,
-      icon: 'bag-suitcase',
-      iconColor: '#2563EB',
-      bgColor: '#EFF6FF',
-    },
-    {
-      id: '2',
-      name: 'Laptop Bag',
-      itemCount: 4,
-      icon: 'bag-personal',
-      iconColor: '#1E293B',
-      bgColor: '#F1F5F9',
-    },
-    {
-      id: '3',
-      name: 'First-Aid Kit',
-      itemCount: 6,
-      icon: 'medical-bag',
-      iconColor: '#DC2626',
-      bgColor: '#FEF2F2',
-    },
-    {
-      id: '4',
-      name: 'Storage Box',
-      itemCount: 3,
-      icon: 'package-variant-closed',
-      iconColor: '#D97706',
-      bgColor: '#FFFBEB',
-    },
-  ];
+  // Modals
+  const [modalVisible, setModalVisible] = useState(false);
+  const [editingContainer, setEditingContainer] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const filteredContainers = sampleContainers.filter((item) =>
-    item.name.toLowerCase().includes(searchQuery.toLowerCase())
+  // Selected container for viewing assigned items
+  const [viewingContainer, setViewingContainer] = useState(null);
+  const [itemsModalVisible, setItemsModalVisible] = useState(false);
+
+  const loadContainers = async () => {
+    try {
+      setLoading(true);
+      const data = await fetchContainers();
+      setContainers(data);
+    } catch (err) {
+      console.warn('Failed to load containers:', err.message);
+      Alert.alert('Notice', 'Could not load containers. Ensure the PackWise backend is running.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadContainers();
+    }, [])
   );
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const data = await fetchContainers();
+      setContainers(data);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const handleCreateOrEditSubmit = async (formData) => {
+    setSubmitting(true);
+    try {
+      if (editingContainer) {
+        const updated = await updateContainer(editingContainer.containerId, formData);
+        setContainers((prev) =>
+          prev.map((c) =>
+            c.containerId === editingContainer.containerId
+              ? { ...c, ...updated }
+              : c
+          )
+        );
+      } else {
+        const created = await createContainer(formData);
+        setContainers((prev) => [...prev, created]);
+      }
+      setModalVisible(false);
+      setEditingContainer(null);
+    } catch (err) {
+      Alert.alert('Error', err.message || 'Failed to save container.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteContainer = (container) => {
+    Alert.alert(
+      'Delete Container',
+      `Are you sure you want to delete "${container.containerName}"?\n\nAny items assigned to this container will remain intact in your packing checklists.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteContainer(container.containerId);
+              setContainers((prev) =>
+                prev.filter((c) => c.containerId !== container.containerId)
+              );
+            } catch (err) {
+              Alert.alert('Error', err.message || 'Failed to delete container.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleCardPress = (container) => {
+    setViewingContainer(container);
+    setItemsModalVisible(true);
+  };
+
+  // Filter & Search
+  const filteredContainers = containers.filter((c) => {
+    const q = searchQuery.toLowerCase().trim();
+    const matchesSearch =
+      !q ||
+      c.containerName?.toLowerCase().includes(q) ||
+      c.containerType?.toLowerCase().includes(q) ||
+      c.description?.toLowerCase().includes(q);
+
+    if (!matchesSearch) return false;
+
+    if (selectedType !== 'All' && c.containerType !== selectedType) {
+      return false;
+    }
+
+    return true;
+  });
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -62,12 +158,14 @@ export default function StorageScreen() {
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Storage Manager</Text>
-          <Text style={styles.headerSubtitle}>Your Bags & Containers</Text>
+          <Text style={styles.headerSubtitle}>
+            {containers.length} {containers.length === 1 ? 'Container' : 'Containers'} • Bags & Luggage
+          </Text>
         </View>
 
-        {/* Search Input Bar */}
+        {/* Search Bar */}
         <View style={styles.searchBar}>
-          <Ionicons name="search-outline" size={20} color={Colors.textMuted} style={styles.searchIcon} />
+          <Ionicons name="search-outline" size={19} color={Colors.textMuted} style={styles.searchIcon} />
           <TextInput
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -82,54 +180,120 @@ export default function StorageScreen() {
           ) : null}
         </View>
 
-        {/* Container Items List */}
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.listContent}
-        >
-          {filteredContainers.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={[styles.containerCard, Shadows.card]}
-              activeOpacity={0.7}
-              onPress={() =>
-                Alert.alert(
-                  item.name,
-                  `Contains ${item.itemCount} items. Detailed container management will be active in Milestone 3.`
-                )
-              }
-            >
-              <View style={[styles.iconWrapper, { backgroundColor: item.bgColor }]}>
-                <MaterialCommunityIcons
-                  name={item.icon}
-                  size={26}
-                  color={item.iconColor}
-                />
-              </View>
+        {/* Filter Pills */}
+        <View style={styles.filterWrap}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
+            {CONTAINER_FILTER_TYPES.map((type) => {
+              const isSelected = selectedType === type;
+              return (
+                <TouchableOpacity
+                  key={type}
+                  onPress={() => setSelectedType(type)}
+                  style={[styles.filterChip, isSelected && styles.filterChipActive]}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.filterChipText, isSelected && styles.filterChipTextActive]}>
+                    {type}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
 
-              <View style={styles.itemInfo}>
-                <Text style={styles.itemName}>{item.name}</Text>
-                <Text style={styles.itemCount}>{item.itemCount} items</Text>
-              </View>
-
-              <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+        {/* Body List */}
+        {loading && !refreshing ? (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="large" color={Colors.primary} />
+            <Text style={styles.loadingText}>Loading storage containers...</Text>
+          </View>
+        ) : filteredContainers.length === 0 ? (
+          <ScrollView
+            contentContainerStyle={styles.emptyContainer}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[Colors.primary]} />
+            }
+          >
+            <View style={styles.emptyIconCircle}>
+              <Ionicons name="cube-outline" size={50} color={Colors.textMuted} />
+            </View>
+            <Text style={styles.emptyTitle}>
+              {searchQuery ? 'No matching containers' : 'No containers yet'}
+            </Text>
+            <Text style={styles.emptySubtitle}>
+              {searchQuery
+                ? 'Try a different search term or filter.'
+                : 'Add suitcases, backpacks, and packing cubes to easily track where your items are stored.'}
+            </Text>
+            {!searchQuery && (
+              <PrimaryButton
+                title="Add First Container"
+                onPress={() => {
+                  setEditingContainer(null);
+                  setModalVisible(true);
+                }}
+                style={styles.addFirstBtn}
+              />
+            )}
+          </ScrollView>
+        ) : (
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.listContent}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[Colors.primary]} />
+            }
+          >
+            {filteredContainers.map((container) => (
+              <ContainerCard
+                key={container.containerId}
+                container={container}
+                onPress={() => handleCardPress(container)}
+                onEdit={() => {
+                  setEditingContainer(container);
+                  setModalVisible(true);
+                }}
+                onDelete={() => handleDeleteContainer(container)}
+              />
+            ))}
+          </ScrollView>
+        )}
 
         {/* Bottom Add Action */}
-        <View style={styles.bottomSection}>
-          <PrimaryButton
-            title="Add Container +"
-            onPress={() =>
-              Alert.alert(
-                'Add Container',
-                'Custom container addition & RFID/tag tracking will be integrated in Milestone 3.'
-              )
-            }
-          />
-        </View>
+        {filteredContainers.length > 0 && (
+          <View style={styles.bottomSection}>
+            <PrimaryButton
+              title="Add Container +"
+              onPress={() => {
+                setEditingContainer(null);
+                setModalVisible(true);
+              }}
+            />
+          </View>
+        )}
       </View>
+
+      {/* Add / Edit Container Modal */}
+      <ContainerModal
+        visible={modalVisible}
+        onClose={() => {
+          setModalVisible(false);
+          setEditingContainer(null);
+        }}
+        onSubmit={handleCreateOrEditSubmit}
+        initialContainer={editingContainer}
+        loading={submitting}
+      />
+
+      {/* Container Items Details Modal */}
+      <ContainerItemListModal
+        visible={itemsModalVisible}
+        container={viewingContainer}
+        onClose={() => {
+          setItemsModalVisible(false);
+          setViewingContainer(null);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -145,7 +309,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   header: {
-    marginBottom: 18,
+    marginBottom: 16,
   },
   headerTitle: {
     fontSize: 24,
@@ -154,7 +318,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
   },
   headerSubtitle: {
-    fontSize: 14,
+    fontSize: 13,
     color: Colors.textSecondary,
     marginTop: 2,
   },
@@ -164,53 +328,91 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.inputBackground,
     borderRadius: Radii.md,
     paddingHorizontal: 14,
-    height: 48,
-    marginBottom: 18,
+    height: 46,
+    marginBottom: 10,
   },
   searchIcon: {
-    marginRight: 10,
+    marginRight: 8,
   },
   searchInput: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 14,
     color: Colors.textPrimary,
   },
-  listContent: {
-    gap: 12,
-    paddingBottom: 20,
+  filterWrap: {
+    marginBottom: 14,
   },
-  containerCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.card,
-    borderRadius: Radii.lg,
-    padding: 16,
+  filterScroll: {
+    gap: 8,
+  },
+  filterChip: {
+    paddingHorizontal: 13,
+    paddingVertical: 6,
+    borderRadius: Radii.full,
+    backgroundColor: Colors.backgroundSecondary,
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  iconWrapper: {
-    width: 48,
-    height: 48,
-    borderRadius: Radii.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 14,
+  filterChipActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
   },
-  itemInfo: {
-    flex: 1,
-  },
-  itemName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: 2,
-  },
-  itemCount: {
-    fontSize: 13,
+  filterChipText: {
+    fontSize: 12,
+    fontWeight: '600',
     color: Colors.textSecondary,
   },
+  filterChipTextActive: {
+    color: Colors.textInverse,
+  },
+  centerContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingBottom: 40,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginTop: 10,
+  },
+  emptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 50,
+  },
+  emptyIconCircle: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: Colors.backgroundSecondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 22,
+  },
+  addFirstBtn: {
+    minWidth: 200,
+  },
+  listContent: {
+    paddingBottom: 24,
+  },
   bottomSection: {
-    paddingVertical: 14,
+    paddingVertical: 12,
   },
 });
-

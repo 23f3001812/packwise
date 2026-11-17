@@ -1,107 +1,250 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   View,
   Text,
   ScrollView,
   TouchableOpacity,
-  Alert,
+  ActivityIndicator,
+  RefreshControl,
+  Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/colors';
 import { Radii, Shadows } from '../../constants/theme';
-import { PrimaryButton } from '../../components/buttons/PrimaryButton';
+import { InvitationCard } from '../../components/collaboration/InvitationCard';
+import {
+  fetchSharedLists,
+  acceptInvitation,
+  rejectInvitation
+} from '../../services/collaborationService';
 import { useAuth } from '../../context/AuthContext';
+import { usePendingInvitations } from '../../hooks/usePendingInvitations';
 
 export default function GroupsScreen() {
-  const { user, userProfile } = useAuth();
-  const userName = userProfile?.name || user?.displayName || 'You';
+  const router = useRouter();
+  const { user } = useAuth();
+  const { invitations, pendingCount } = usePendingInvitations(user?.email);
 
-  const members = [
-    { id: '1', name: userName, progress: 72, isCurrentUser: true },
-    { id: '2', name: 'Riya', progress: 68, isCurrentUser: false },
-    { id: '3', name: 'Aditya', progress: 65, isCurrentUser: false },
-  ];
+  const [activeTab, setActiveTab] = useState('shared'); // 'shared' | 'invitations'
+  const [sharedLists, setSharedLists] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadSharedLists = async () => {
+    try {
+      setLoading(true);
+      const lists = await fetchSharedLists();
+      setSharedLists(lists);
+    } catch (err) {
+      console.warn('Failed to load shared lists:', err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadSharedLists();
+    }, [])
+  );
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadSharedLists();
+    setRefreshing(false);
+  };
+
+  const handleAcceptInvite = async (invitationId) => {
+    try {
+      const res = await acceptInvitation(invitationId);
+      Alert.alert(
+        'Invitation Accepted',
+        `You have joined "${res.listName || 'the trip'}".`,
+        [
+          {
+            text: 'View Trip',
+            onPress: () => router.push(`/lists/${res.listId}`)
+          },
+          { text: 'OK' }
+        ]
+      );
+      loadSharedLists();
+    } catch (err) {
+      Alert.alert('Error', err.message || 'Failed to accept invitation.');
+    }
+  };
+
+  const handleRejectInvite = async (invitationId) => {
+    try {
+      await rejectInvitation(invitationId);
+      Alert.alert('Invitation Declined', 'The invitation was declined.');
+    } catch (err) {
+      Alert.alert('Error', err.message || 'Failed to decline invitation.');
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
-        {/* Header */}
+        {/* Top Header */}
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Trip Group</Text>
-          <Text style={styles.headerSubtitle}>4 Members • Shimla Expedition</Text>
+          <Text style={styles.headerTitle}>Trip Collaboration</Text>
+          <Text style={styles.headerSubtitle}>Shared packing lists & trip invitations</Text>
         </View>
 
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-          {/* Group Checklist Banner Card */}
+        {/* Tab Switcher: Shared Trips vs Invitations */}
+        <View style={styles.tabBar}>
           <TouchableOpacity
-            style={[styles.groupChecklistCard, Shadows.card]}
+            onPress={() => setActiveTab('shared')}
+            style={[styles.tabBtn, activeTab === 'shared' && styles.tabBtnActive]}
             activeOpacity={0.7}
-            onPress={() =>
-              Alert.alert(
-                'Group Checklist',
-                'Real-time collaborative checklist sync will be enabled in Milestone 6.'
-              )
-            }
           >
-            <View style={styles.groupChecklistInfo}>
-              <Text style={styles.groupChecklistTitle}>Group Checklist</Text>
-              <Text style={styles.groupChecklistSubtitle}>
-                Everyone's packing progress synced in real-time
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+            <Ionicons
+              name="people-outline"
+              size={16}
+              color={activeTab === 'shared' ? Colors.textInverse : Colors.textSecondary}
+              style={{ marginRight: 6 }}
+            />
+            <Text
+              style={[styles.tabText, activeTab === 'shared' && styles.tabTextActive]}
+            >
+              Shared Trips ({sharedLists.length})
+            </Text>
           </TouchableOpacity>
 
-          {/* Members' Progress Section */}
-          <View style={styles.membersSection}>
-            <Text style={styles.sectionTitle}>Members' Progress</Text>
+          <TouchableOpacity
+            onPress={() => setActiveTab('invitations')}
+            style={[styles.tabBtn, activeTab === 'invitations' && styles.tabBtnActive]}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name="mail-outline"
+              size={16}
+              color={activeTab === 'invitations' ? Colors.textInverse : Colors.textSecondary}
+              style={{ marginRight: 6 }}
+            />
+            <Text
+              style={[styles.tabText, activeTab === 'invitations' && styles.tabTextActive]}
+            >
+              Invitations
+            </Text>
+            {pendingCount > 0 && (
+              <View style={styles.badgeCount}>
+                <Text style={styles.badgeCountText}>{pendingCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
 
-            <View style={styles.membersList}>
-              {members.map((member) => (
-                <View key={member.id} style={styles.memberRow}>
-                  <View style={styles.avatarCircle}>
-                    <Ionicons name="person" size={18} color={Colors.primary} />
-                  </View>
-
-                  <View style={styles.memberInfo}>
-                    <View style={styles.memberHeader}>
-                      <Text style={styles.memberName}>
-                        {member.name} {member.isCurrentUser ? '(You)' : ''}
-                      </Text>
-                      <Text style={styles.memberPercent}>{member.progress}%</Text>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[Colors.primary]} />
+          }
+        >
+          {activeTab === 'shared' ? (
+            /* SHARED TRIPS TAB */
+            loading ? (
+              <View style={styles.centerContainer}>
+                <ActivityIndicator size="large" color={Colors.primary} />
+                <Text style={styles.loadingText}>Loading shared lists...</Text>
+              </View>
+            ) : sharedLists.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <View style={styles.emptyIconCircle}>
+                  <Ionicons name="people-outline" size={32} color={Colors.primary} />
+                </View>
+                <Text style={styles.emptyTitle}>No Shared Trips Yet</Text>
+                <Text style={styles.emptySubtitle}>
+                  When other PackWise users invite you to their packing checklists, they will appear here in real-time.
+                </Text>
+              </View>
+            ) : (
+              sharedLists.map((item) => (
+                <TouchableOpacity
+                  key={item.listId}
+                  style={[styles.sharedCard, Shadows.card]}
+                  activeOpacity={0.8}
+                  onPress={() => router.push(`/lists/${item.listId}`)}
+                >
+                  <View style={styles.cardHeader}>
+                    <View style={styles.cardHeaderInfo}>
+                      <Text style={styles.cardTitle}>{item.eventName}</Text>
+                      <View style={styles.destRow}>
+                        <Ionicons name="location-outline" size={13} color={Colors.textSecondary} style={{ marginRight: 3 }} />
+                        <Text style={styles.destText}>{item.destination}</Text>
+                      </View>
                     </View>
 
-                    {/* Progress Bar */}
-                    <View style={styles.progressBarTrack}>
+                    {/* Role Pill */}
+                    <View style={styles.rolePill}>
+                      <Text style={styles.roleText}>{item.myRole || 'Editor'}</Text>
+                    </View>
+                  </View>
+
+                  {/* Owner Row */}
+                  <View style={styles.ownerRow}>
+                    <Ionicons name="person-circle-outline" size={15} color={Colors.textSecondary} style={{ marginRight: 4 }} />
+                    <Text style={styles.ownerText}>
+                      Owner: {item.ownerName || item.ownerEmail || 'Collaborator'}
+                    </Text>
+                  </View>
+
+                  {/* Progress Bar */}
+                  <View style={styles.progressRow}>
+                    <View style={styles.progressTrack}>
                       <View
                         style={[
-                          styles.progressBarFill,
-                          { width: `${member.progress}%` },
+                          styles.progressFill,
+                          { width: `${item.stats?.packingProgress || 0}%` }
                         ]}
                       />
                     </View>
+                    <Text style={styles.progressPercent}>
+                      {item.stats?.packingProgress || 0}%
+                    </Text>
                   </View>
-                </View>
-              ))}
-            </View>
-          </View>
-        </ScrollView>
 
-        {/* Bottom Share Button */}
-        <View style={styles.bottomSection}>
-          <PrimaryButton
-            title="Share Checklist"
-            icon={<Ionicons name="share-social-outline" size={18} color={Colors.textInverse} />}
-            onPress={() =>
-              Alert.alert(
-                'Share Checklist',
-                'Invite codes and collaborative deep links will be active in Milestone 6.'
-              )
-            }
-          />
-        </View>
+                  <View style={styles.cardFooter}>
+                    <Text style={styles.itemsCount}>
+                      {item.stats?.packedItems || 0} of {item.stats?.totalItems || 0} items packed
+                    </Text>
+                    <View style={styles.viewRow}>
+                      <Text style={styles.viewText}>Open Checklist</Text>
+                      <Ionicons name="chevron-forward" size={14} color={Colors.primary} />
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              ))
+            )
+          ) : (
+            /* INVITATIONS TAB */
+            invitations.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <View style={styles.emptyIconCircle}>
+                  <Ionicons name="mail-open-outline" size={32} color={Colors.primary} />
+                </View>
+                <Text style={styles.emptyTitle}>No Pending Invitations</Text>
+                <Text style={styles.emptySubtitle}>
+                  You're all caught up! New collaboration invitations sent to {user?.email} will appear here.
+                </Text>
+              </View>
+            ) : (
+              invitations.map((inv) => (
+                <InvitationCard
+                  key={inv.invitationId}
+                  invitation={inv}
+                  onAccept={handleAcceptInvite}
+                  onReject={handleRejectInvite}
+                />
+              ))
+            )
+          )}
+        </ScrollView>
       </View>
     </SafeAreaView>
   );
@@ -110,110 +253,200 @@ export default function GroupsScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: '#FFFFFF'
   },
   container: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 12,
+    flex: 1
   },
   header: {
-    marginBottom: 20,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 12
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '800',
-    color: Colors.textPrimary,
-    letterSpacing: -0.3,
+    color: Colors.textPrimary
   },
   headerSubtitle: {
-    fontSize: 14,
+    fontSize: 13,
     color: Colors.textSecondary,
-    marginTop: 2,
+    marginTop: 2
   },
-  scrollContent: {
-    paddingBottom: 20,
+  tabBar: {
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    marginBottom: 14,
+    backgroundColor: '#F3F4F6',
+    borderRadius: Radii.full,
+    padding: 4
   },
-  groupChecklistCard: {
+  tabBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.card,
-    borderRadius: Radii.lg,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    marginBottom: 26,
+    justifyContent: 'center',
+    paddingVertical: 9,
+    borderRadius: Radii.full
   },
-  groupChecklistInfo: {
-    flex: 1,
+  tabBtnActive: {
+    backgroundColor: Colors.primary
   },
-  groupChecklistTitle: {
+  tabText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.textSecondary
+  },
+  tabTextActive: {
+    color: '#FFFFFF'
+  },
+  badgeCount: {
+    marginLeft: 6,
+    backgroundColor: Colors.danger,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: Radii.full
+  },
+  badgeCountText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#FFFFFF'
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 96
+  },
+  centerContainer: {
+    paddingVertical: 40,
+    alignItems: 'center'
+  },
+  loadingText: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    marginTop: 8
+  },
+  emptyContainer: {
+    paddingVertical: 60,
+    alignItems: 'center',
+    paddingHorizontal: 30
+  },
+  emptyIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16
+  },
+  emptyTitle: {
     fontSize: 16,
     fontWeight: '700',
     color: Colors.textPrimary,
-    marginBottom: 4,
+    marginBottom: 6
   },
-  groupChecklistSubtitle: {
+  emptySubtitle: {
     fontSize: 13,
     color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 19
   },
-  membersSection: {
-    marginBottom: 20,
+  sharedCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: Radii.lg,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB'
   },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: 16,
-  },
-  membersList: {
-    gap: 18,
-  },
-  memberRow: {
+  cardHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-  },
-  avatarCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Colors.backgroundSecondary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 14,
-  },
-  memberInfo: {
-    flex: 1,
-  },
-  memberHeader: {
-    flexDirection: 'row',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 8
   },
-  memberName: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colors.textPrimary,
+  cardHeaderInfo: {
+    flex: 1,
+    marginRight: 8
   },
-  memberPercent: {
-    fontSize: 13,
+  cardTitle: {
+    fontSize: 16,
     fontWeight: '700',
-    color: Colors.primary,
+    color: Colors.textPrimary
   },
-  progressBarTrack: {
+  destRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2
+  },
+  destText: {
+    fontSize: 12,
+    color: Colors.textSecondary
+  },
+  rolePill: {
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+    borderRadius: Radii.full
+  },
+  roleText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#1D4ED8',
+    textTransform: 'uppercase'
+  },
+  ownerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12
+  },
+  ownerText: {
+    fontSize: 12,
+    color: Colors.textSecondary
+  },
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10
+  },
+  progressTrack: {
+    flex: 1,
     height: 6,
-    backgroundColor: Colors.backgroundSecondary,
-    borderRadius: Radii.full,
-    overflow: 'hidden',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 3,
+    overflow: 'hidden'
   },
-  progressBarFill: {
+  progressFill: {
     height: '100%',
     backgroundColor: Colors.primary,
-    borderRadius: Radii.full,
+    borderRadius: 3
   },
-  bottomSection: {
-    paddingVertical: 14,
+  progressPercent: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.textPrimary
   },
+  cardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6'
+  },
+  itemsCount: {
+    fontSize: 12,
+    color: Colors.textSecondary
+  },
+  viewRow: {
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  viewText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.primary,
+    marginRight: 2
+  }
 });
-

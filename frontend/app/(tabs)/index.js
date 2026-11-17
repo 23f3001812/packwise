@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -10,7 +10,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { Colors } from '../../constants/colors';
@@ -19,12 +19,26 @@ import { PackingProgressCard } from '../../components/cards/PackingProgressCard'
 import { QuickActionCard } from '../../components/cards/QuickActionCard';
 import { EventCard } from '../../components/cards/EventCard';
 import { checkBackendHealth } from '../../services/api';
+import { fetchDashboardSummary } from '../../services/packingService';
+import { useUnreadNotifications } from '../../hooks/useUnreadNotifications';
 
 export default function HomeScreen() {
   const router = useRouter();
   const { user, userProfile } = useAuth();
+  const unreadNotificationsCount = useUnreadNotifications(user?.uid);
 
   const [refreshing, setRefreshing] = useState(false);
+  const [dashboardData, setDashboardData] = useState({
+    hasData: false,
+    totalLists: 0,
+    totalItems: 0,
+    totalPacked: 0,
+    remainingItems: 0,
+    overallProgress: 0,
+    upcomingTrip: null,
+    recentLists: [],
+  });
+
   const [backendStatus, setBackendStatus] = useState({
     checked: false,
     connected: false,
@@ -36,10 +50,14 @@ export default function HomeScreen() {
   // Display user's name or fallback
   const displayName = userProfile?.name || user?.displayName || 'Traveler';
 
-  // Check backend health on mount
-  useEffect(() => {
-    testBackendConnection();
-  }, []);
+  const loadDashboard = async () => {
+    try {
+      const summary = await fetchDashboardSummary();
+      setDashboardData(summary);
+    } catch (err) {
+      console.warn('Dashboard summary load notice:', err.message);
+    }
+  };
 
   const testBackendConnection = async () => {
     setBackendStatus((prev) => ({ ...prev, loading: true }));
@@ -55,19 +73,33 @@ export default function HomeScreen() {
     });
   };
 
+  useEffect(() => {
+    testBackendConnection();
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadDashboard();
+    }, [])
+  );
+
   const onRefresh = async () => {
     setRefreshing(true);
-    await testBackendConnection();
+    await Promise.all([testBackendConnection(), loadDashboard()]);
     setRefreshing(false);
   };
 
   const showMilestoneAlert = (featureName, targetMilestone) => {
     Alert.alert(
       featureName,
-      `This feature is part of ${targetMilestone}. In Milestone 1, the core architecture, authentication, and database foundation are active!`,
+      `This feature is part of ${targetMilestone}. In Milestone 2, core packing checklists, unpacking mode, and intelligent storage management are fully functional!`,
       [{ text: 'OK' }]
     );
   };
+
+  const progressSubtitle = dashboardData.hasData
+    ? `${dashboardData.totalPacked} of ${dashboardData.totalItems} items packed across ${dashboardData.totalLists} ${dashboardData.totalLists === 1 ? 'list' : 'lists'}`
+    : 'No packing lists yet — create one below';
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -82,7 +114,7 @@ export default function HomeScreen() {
         <View style={styles.headerRow}>
           <View style={styles.greetingContainer}>
             <TouchableOpacity
-              onPress={() => Alert.alert('Menu', 'Side drawer menu will be integrated in future milestone.')}
+              onPress={() => router.push('/lists')}
               style={styles.menuButton}
               activeOpacity={0.7}
             >
@@ -91,7 +123,7 @@ export default function HomeScreen() {
 
             <View style={styles.nameHeader}>
               <Text style={styles.greetingText}>
-                Hello, {displayName}! 👋
+                Hello, {displayName}
               </Text>
               <Text style={styles.subGreetingText}>
                 Ready for your next adventure?
@@ -101,37 +133,72 @@ export default function HomeScreen() {
 
           <TouchableOpacity
             style={styles.bellButton}
-            onPress={() => showMilestoneAlert('Notifications', 'Milestone 5 (Leave-Behind Alerts & Reminders)')}
+            onPress={() => router.push('/notifications')}
             activeOpacity={0.7}
+            accessibilityLabel="Notifications"
           >
             <Ionicons name="notifications-outline" size={22} color={Colors.textPrimary} />
-            <View style={styles.unreadBadge} />
+            {unreadNotificationsCount > 0 && (
+              <View style={styles.unreadBadge}>
+                <Text style={styles.unreadBadgeText}>
+                  {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
 
-        {/* Packing Progress Card */}
-        <View style={styles.progressSection}>
+        {/* Packing Progress Card (Real Data) */}
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => router.push('/lists')}
+          style={styles.progressSection}
+        >
           <PackingProgressCard
-            title="Your Packing Progress"
-            progressPercent={72}
+            title={dashboardData.hasData ? 'Overall Packing Progress' : 'Start Packing'}
+            progressPercent={dashboardData.overallProgress || 0}
+            subtitle={progressSubtitle}
           />
-        </View>
+        </TouchableOpacity>
+
+        {/* AI Smart Packing Banner */}
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => router.push('/ai')}
+          style={styles.aiBanner}
+        >
+          <View style={styles.aiBannerIcon}>
+            <Ionicons name="sparkles" size={20} color="#FFFFFF" />
+          </View>
+          <View style={styles.aiBannerContent}>
+            <View style={styles.aiBannerBadgeRow}>
+              <Text style={styles.aiBannerTitle}>AI Packing Assistant</Text>
+              <View style={styles.aiNewPill}>
+                <Text style={styles.aiNewPillText}>Gemini AI</Text>
+              </View>
+            </View>
+            <Text style={styles.aiBannerSub}>
+              Weather-aware checklists tailored to your destination
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={Colors.primary} />
+        </TouchableOpacity>
 
         {/* 2x2 Quick Actions Grid */}
         <View style={styles.gridSection}>
           <View style={styles.gridRow}>
             <QuickActionCard
               title="New Checklist"
-              subtitle="✨ Create"
+              subtitle="Create"
               iconName="checkbox-outline"
               iconColor={Colors.primary}
               style={styles.gridCard}
-              onPress={() => showMilestoneAlert('AI Checklist Generator', 'Milestone 2 (Gemini AI Checklist)')}
+              onPress={() => router.push('/lists/create')}
             />
 
             <QuickActionCard
               title="My Bags"
-              subtitle="📦 Organize"
+              subtitle="Organize"
               iconName="briefcase-outline"
               iconColor={Colors.primary}
               style={styles.gridCard}
@@ -141,41 +208,58 @@ export default function HomeScreen() {
 
           <View style={styles.gridRow}>
             <QuickActionCard
-              title="Groups"
-              subtitle="👥 Share"
-              iconName="people-outline"
+              title="Packing Lists"
+              subtitle="View All"
+              iconName="list-outline"
               iconColor={Colors.primary}
               style={styles.gridCard}
-              onPress={() => router.push('/(tabs)/groups')}
+              onPress={() => router.push('/lists')}
             />
 
             <QuickActionCard
               title="Reminders"
-              subtitle="⏰ Set"
-              iconName="time-outline"
+              subtitle="Alerts"
+              iconName="alarm-outline"
               iconColor={Colors.primary}
               style={styles.gridCard}
-              onPress={() => showMilestoneAlert('Trip Reminders', 'Milestone 5 (Geofencing & Alerts)')}
+              onPress={() => router.push('/reminders')}
             />
           </View>
         </View>
 
-        {/* Upcoming Events Section */}
+        {/* Upcoming Events / Lists Section */}
         <View style={styles.eventsSection}>
           <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Upcoming Events</Text>
-            <TouchableOpacity
-              onPress={() => showMilestoneAlert('Events Calendar', 'Milestone 4 (Trip & Schedule Management)')}
-            >
+            <Text style={styles.sectionTitle}>Upcoming Trips</Text>
+            <TouchableOpacity onPress={() => router.push('/lists')}>
               <Text style={styles.viewAllText}>View All →</Text>
             </TouchableOpacity>
           </View>
 
-          <EventCard
-            title="Trip to Shimla"
-            dates="Apr 27 - May 1 • 5 days"
-            onPress={() => showMilestoneAlert('Trip Details', 'Milestone 2 (AI Checklist & Packing Details)')}
-          />
+          {dashboardData.upcomingTrip ? (
+            <EventCard
+              title={dashboardData.upcomingTrip.eventName}
+              dates={`${dashboardData.upcomingTrip.destination}${dashboardData.upcomingTrip.startDate ? ` • ${dashboardData.upcomingTrip.startDate}` : ''}`}
+              onPress={() => router.push(`/lists/${dashboardData.upcomingTrip.listId}`)}
+            />
+          ) : (
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => router.push('/lists/create')}
+              style={[styles.emptyTripCard, Shadows.card]}
+            >
+              <View style={styles.emptyTripIcon}>
+                <Ionicons name="airplane-outline" size={24} color={Colors.primary} />
+              </View>
+              <View style={styles.emptyTripTextContainer}>
+                <Text style={styles.emptyTripTitle}>No upcoming trips planned</Text>
+                <Text style={styles.emptyTripSubtitle}>
+                  Tap here to create a new packing checklist
+                </Text>
+              </View>
+              <Ionicons name="add-circle-outline" size={22} color={Colors.primary} />
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Backend Connectivity Diagnostic Status Pill */}
@@ -224,7 +308,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 28,
+    paddingBottom: 96,
   },
   headerRow: {
     flexDirection: 'row',
@@ -271,14 +355,20 @@ const styles = StyleSheet.create({
   },
   unreadBadge: {
     position: 'absolute',
-    top: 9,
-    right: 10,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    top: 5,
+    right: 5,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
     backgroundColor: Colors.danger,
-    borderWidth: 1.5,
-    borderColor: Colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  unreadBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '800',
   },
   progressSection: {
     marginBottom: 20,
@@ -313,6 +403,37 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.primary,
   },
+  emptyTripCard: {
+    backgroundColor: Colors.card,
+    borderRadius: Radii.lg,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  emptyTripIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: Radii.md,
+    backgroundColor: Colors.primarySurface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  emptyTripTextContainer: {
+    flex: 1,
+  },
+  emptyTripTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginBottom: 2,
+  },
+  emptyTripSubtitle: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+  },
   diagnosticPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -342,5 +463,56 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.textSecondary,
   },
+  aiBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: Radii.lg,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    ...Shadows.sm,
+  },
+  aiBannerIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  aiBannerContent: {
+    flex: 1,
+    marginRight: 8,
+  },
+  aiBannerBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 3,
+  },
+  aiBannerTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  aiNewPill: {
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: Radii.full,
+  },
+  aiNewPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#2563EB',
+    textTransform: 'uppercase',
+  },
+  aiBannerSub: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    lineHeight: 16,
+  },
 });
-

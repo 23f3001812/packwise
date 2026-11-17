@@ -3,10 +3,125 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Users Collection Security Rules:
-    // Users can only read and write their own profile document.
+    // Helper functions for ownership & membership verification
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function getListData(listId) {
+      return get(/databases/$(database)/documents/packingLists/$(listId)).data;
+    }
+
+    function isListCollaborator(listData) {
+      return listData.userId == request.auth.uid ||
+             (listData.ownerId != null && listData.ownerId == request.auth.uid) ||
+             (listData.memberIds != null && request.auth.uid in listData.memberIds);
+    }
+
+    // Users Collection: Private user profile documents
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if isOwner(userId);
+    }
+
+    // Packing Lists Collection: Accessible by owner and registered collaborators
+    match /packingLists/{listId} {
+      allow read: if isAuthenticated() && isListCollaborator(resource.data);
+      allow create: if isAuthenticated() && (request.resource.data.userId == request.auth.uid || request.resource.data.ownerId == request.auth.uid);
+      allow update: if isAuthenticated() && isListCollaborator(resource.data);
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.ownerId == request.auth.uid);
+
+      // Members Subcollection: Membership records for each collaborator
+      match /members/{memberId} {
+        allow read: if isAuthenticated() && (
+          request.auth.uid == memberId ||
+          isListCollaborator(getListData(listId))
+        );
+        allow write: if isAuthenticated() && (
+          getListData(listId).userId == request.auth.uid ||
+          (getListData(listId).ownerId != null && getListData(listId).ownerId == request.auth.uid) ||
+          request.auth.uid == memberId
+        );
+      }
+    }
+
+    // Items Collection: Accessible by list owner and list collaborators
+    match /items/{itemId} {
+      allow read: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        isListCollaborator(getListData(resource.data.listId))
+      );
+      allow create: if isAuthenticated() && (
+        request.resource.data.userId == request.auth.uid ||
+        isListCollaborator(getListData(request.resource.data.listId))
+      );
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        isListCollaborator(getListData(resource.data.listId))
+      );
+      allow delete: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        isListCollaborator(getListData(resource.data.listId))
+      );
+    }
+
+    // Containers Collection: Accessible only by container owner
+    match /containers/{containerId} {
+      allow read, update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+    }
+
+    // Collaboration Invitations Collection
+    match /collaborationInvitations/{invitationId} {
+      allow read: if isAuthenticated() && (
+        resource.data.ownerId == request.auth.uid ||
+        resource.data.inviterId == request.auth.uid ||
+        (request.auth.token.email != null && (
+          resource.data.inviteeEmail == request.auth.token.email ||
+          resource.data.inviteeEmail == request.auth.token.email.lower()
+        )) ||
+        resource.data.inviteeUserId == request.auth.uid
+      );
+      allow create: if isAuthenticated() && request.resource.data.inviterId == request.auth.uid;
+      allow update: if isAuthenticated() && (
+        resource.data.ownerId == request.auth.uid ||
+        resource.data.inviterId == request.auth.uid ||
+        (request.auth.token.email != null && (
+          resource.data.inviteeEmail == request.auth.token.email ||
+          resource.data.inviteeEmail == request.auth.token.email.lower()
+        )) ||
+        resource.data.inviteeUserId == request.auth.uid
+      );
+      allow delete: if isAuthenticated() && (
+        resource.data.ownerId == request.auth.uid ||
+        resource.data.inviterId == request.auth.uid
+      );
+    }
+
+    // Saved Locations Collection: Accessible only by location owner
+    match /locations/{locationId} {
+      allow read, update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+    }
+
+    // Leave-Behind Reminders Collection: Accessible only by reminder owner
+    match /reminders/{reminderId} {
+      allow read, update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+    }
+
+    // In-App Notifications Collection: Accessible only by notification recipient
+    match /notifications/{notificationId} {
+      allow read, update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+    }
+
+    // User Preferences Collection: Accessible only by profile owner
+    match /userPreferences/{userId} {
+      allow read, write: if isAuthenticated() && userId == request.auth.uid;
     }
 
     // Default deny all other paths
@@ -15,4 +130,3 @@ service cloud.firestore {
     }
   }
 }
-
